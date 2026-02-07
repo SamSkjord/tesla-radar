@@ -12,12 +12,11 @@ Adapted from EvoDecoder/src/protocol/tesla_radar_protocol.py with:
 """
 
 import math
-import os
 import subprocess
 import sys
 import time
 import threading
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -60,10 +59,13 @@ def _get_module_dir():
     return Path(__file__).resolve().parent
 
 
-def _load_radar_dbc():
+def _load_radar_dbc(dbc_path=None):
     global _RADAR_DBC
     if _RADAR_DBC is None:
-        dbc_path = _get_module_dir() / "opendbc" / "tesla_radar.dbc"
+        if dbc_path is None:
+            dbc_path = _get_module_dir() / "opendbc" / "tesla_radar.dbc"
+        else:
+            dbc_path = Path(dbc_path)
         with open(dbc_path, "r", encoding="utf-8", errors="ignore") as fh:
             raw = fh.read()
         sanitized_lines = []
@@ -105,8 +107,8 @@ def _load_tesla_can_dbc():
     return _TESLA_CAN_DBC
 
 
-def setup_can(interface="can0", bitrate=500000, *, auto_setup=True,
-              use_sudo=False, setup_extra_args=()):
+def setup_can(channel="can0", bitrate=500000, *, can_interface=None,
+              auto_setup=True, use_sudo=False, setup_extra_args=()):
     """Setup CAN interface with platform-specific handling.
 
     On macOS the default adapter is the CANalyst-II dual-channel USB device.
@@ -114,34 +116,38 @@ def setup_can(interface="can0", bitrate=500000, *, auto_setup=True,
 
     Parameters
     ----------
-    interface : str
-        For canalystii: channel number ("0" or "1") or name ("can0"/"can1").
-        For socketcan: interface name (e.g. "can0").
+    channel : str
+        CAN channel ("0"/"1" for canalystii, "can0" for socketcan).
     bitrate : int
         CAN bus bitrate.
+    can_interface : str or None
+        python-can interface type ("socketcan", "canalystii", etc.).
+        If None, auto-detects from platform (canalystii on macOS, socketcan on Linux).
     auto_setup : bool
-        If True and on Linux/socketcan, bring up the interface automatically.
+        If True and using socketcan, bring up the interface automatically.
     use_sudo : bool
         Prefix setup commands with sudo.
     setup_extra_args : tuple
         Extra tokens to prefix ip link commands.
     """
-    if sys.platform.startswith("darwin"):
-        # macOS: use CANalyst-II USB adapter
-        if isinstance(interface, int):
-            channel = interface
-        elif interface.isdigit():
-            channel = int(interface)
-        else:
-            digits = "".join(c for c in interface if c.isdigit())
-            channel = int(digits) if digits else 0
-        return can.Bus(interface="canalystii", channel=channel, bitrate=bitrate)
+    if can_interface is None:
+        can_interface = "canalystii" if sys.platform.startswith("darwin") else "socketcan"
 
-    # Linux: socketcan
-    if auto_setup:
-        _bring_up_socketcan(interface, bitrate, use_sudo=use_sudo,
+    if can_interface == "canalystii":
+        if isinstance(channel, int):
+            ch = channel
+        elif channel.isdigit():
+            ch = int(channel)
+        else:
+            digits = "".join(c for c in channel if c.isdigit())
+            ch = int(digits) if digits else 0
+        return can.Bus(interface="canalystii", channel=ch, bitrate=bitrate)
+
+    # socketcan or other interface
+    if can_interface == "socketcan" and auto_setup:
+        _bring_up_socketcan(channel, bitrate, use_sudo=use_sudo,
                             extra_args=setup_extra_args)
-    return can.interface.Bus(channel=interface, interface="socketcan")
+    return can.interface.Bus(channel=channel, interface=can_interface)
 
 
 def _bring_up_socketcan(channel, bitrate, *, use_sudo=False, extra_args=()):
@@ -199,7 +205,6 @@ class TeslaRadarProtocol:
         self.last_status_data = None
         self.error_code_counts = Counter()
         self.last_system_status_data = None
-        self.error_code_payloads = defaultdict(set)
         self.dbc = _load_radar_dbc()
         self.dbc_msg169 = self.dbc.get_message_by_frame_id(0x169)
         self.simulation_start_ts = time.time()
@@ -208,12 +213,10 @@ class TeslaRadarProtocol:
         self.radarPosition = 0
         self.radarEpasType = 0
         self.actual_speed_kph = 30.0
-        self.base_speed_kph = 30.0
         if four_wheel_drive is None:
             self.force_awd = False
         else:
             self.force_awd = bool(four_wheel_drive)
-        self.dynamic_phase = 0.0
         self.tesla_can_dbc = _load_tesla_can_dbc()
         self.msg_101 = self.msg_214 = None
         self.msg_108 = self.msg_118 = self.msg_145 = None
@@ -1040,7 +1043,6 @@ class TeslaRadarProtocol:
             loop_start = time.time()
             try:
                 self._update_vehicle_state()
-                self.base_speed_kph = self.actual_speed_kph
                 self.activate_tesla_radar()
                 sleep_time = 0.01 - (time.time() - loop_start)
                 if sleep_time > 0:

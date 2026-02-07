@@ -57,12 +57,6 @@ def parse_args() -> argparse.Namespace:
         help="Extra tokens to prefix ip link commands (repeatable).",
     )
     parser.add_argument(
-        "--keepalive-rate-hz",
-        type=float,
-        default=100.0,
-        help="Frequency for radar keep-alive loop.",
-    )
-    parser.add_argument(
         "--track-timeout",
         type=float,
         default=0.5,
@@ -115,7 +109,6 @@ def main() -> None:
         bitrate=args.bitrate,
         radar_dbc=args.radar_dbc,
         vin=args.vin,
-        keepalive_rate_hz=args.keepalive_rate_hz,
         track_timeout=args.track_timeout,
         auto_vin=not args.no_auto_vin,
         auto_setup=not args.no_setup,

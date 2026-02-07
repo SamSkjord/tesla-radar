@@ -15,13 +15,11 @@ Uses the Tesla Bosch MRRevo14F radar protocol (30+ CAN message types at
 from __future__ import annotations
 
 import dataclasses
-import subprocess
 import threading
 import time
 from typing import Callable, Dict, Iterable, List, Optional
 
 import can
-import cantools
 
 from tesla_radar_protocol import (
     TeslaRadarProtocol,
@@ -89,7 +87,6 @@ class TeslaRadarConfig:
     bitrate: int = 500000
     radar_dbc: str = "opendbc/tesla_radar.dbc"
     vin: Optional[str] = None
-    keepalive_rate_hz: float = 100.0
     track_timeout: float = 0.5
     auto_vin: bool = True
     auto_setup: bool = True
@@ -141,8 +138,9 @@ class TeslaRadarDriver:
 
         # 1. Open CAN bus
         self._bus = setup_can(
-            interface=self.config.channel,
+            channel=self.config.channel,
             bitrate=self.config.bitrate,
+            can_interface=self.config.interface,
             auto_setup=self.config.auto_setup,
             use_sudo=self.config.use_sudo,
             setup_extra_args=self.config.setup_extra_args,
@@ -159,7 +157,7 @@ class TeslaRadarDriver:
                 vin = None
 
         # 3. Load DBC for object decoding
-        self._track_db = _load_radar_dbc()
+        self._track_db = _load_radar_dbc(self.config.radar_dbc)
         self._build_msg_defs()
 
         # 4. Create protocol
@@ -280,11 +278,9 @@ class TeslaRadarDriver:
                 protocol.last_init_data = bytes(msg.data)
 
             elif mid == 0x300:
-                if protocol.tesla_radar_status == 1:
+                if protocol.tesla_radar_status < 2:
                     protocol.tesla_radar_status = 2
-                    protocol.last_radar_signal = time.time()
-                elif protocol.tesla_radar_status == 2:
-                    protocol.last_radar_signal = time.time()
+                protocol.last_radar_signal = time.time()
                 protocol.status_message_count += 1
                 protocol.last_status_data = bytes(msg.data)
 
