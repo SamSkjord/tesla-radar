@@ -1,6 +1,6 @@
 # tesla-radar-driver
 
-Standalone driver for the Tesla Bosch MRRevo14F radar, with the same API as [toyota-radar](https://github.com/user/toyota-radar) so the same consumer code works with either radar.
+Standalone driver for the Tesla Bosch MRRevo14F radar, with the same API as [toyota-radar-driver](https://github.com/user/toyota-radar-driver) so the same consumer code works with either radar.
 
 ## Hardware
 
